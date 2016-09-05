@@ -1,0 +1,117 @@
+---
+title: "Prediction Assignment"
+author: "Angela"
+date: "05 September 2016"
+output: 
+  html_document: 
+    number_sections: yes
+    toc: yes
+---
+
+##Synopsis
+Data was collected from a group of enthusiasts of devices such as Jawbone Up, Nike FuelBand, and Fitbit.  These users were asks to perform barbell lifts correctly and incorrectly in 5 different ways, measurements from accelerometers on the belt, forearm, arm and dumbell were collected.  The scope of this assignment is to build a prediction model that will correctly identify whether the weight lifting exercise was done correctly.  The model will be built on the training set and cross-validated.  We will then apply the final selected prediction model on the test set and submit the results to coursera.  
+
+More information on the dataset is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+##Data Preparation
+We shall be using cross validation to build and validate our model.  The benefits of this is, it will allow us to compare different models and select the most accurate one.
+
+###Importing Dataset
+Data provided for this assignment is imported using the following R code:
+```{r}
+training<-read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
+```
+###Split data into Training set and Test set
+To be able to test the accuracy of each model tested, extract a test dataset from the given data using an 80 training/ 20 test set ratio.  
+```{r}
+library(caret)
+inTrain<-createDataPartition(y=training$classe,p=.8,list=FALSE)
+trainingset<-training[inTrain,]
+testset<-training[-inTrain,]
+dim(trainingset)
+dim(testset)
+```
+##Build Model on Training Set
+We shall evaluate two different techniques and shall select the best one based on the accuracy achieved on the test set.
+
+Let's first explore the data provided, the variable we are trying to predict is classe
+```{r}
+summary(trainingset$classe)
+```
+It has five levels.  We shall use classification tree and random forest techniques to forecast the classe variable.
+
+###Covariates Selection
+The data contains 160 variables, we need to make use of covariate selection techniques to reduce the list of covariates.
+
+The first 7 variables are just a log of the date and time, participants number and activity index, these variables shall be eliminated as they have no predictive value.
+```{r}
+trainingset<-trainingset[,8:160]
+```
+
+Next we shall remove all Near Zero Covariates
+
+```{r}
+nsv<-nearZeroVar(trainingset,saveMetrics=TRUE)
+removedvar<-rownames(nsv[nsv$nzv==TRUE,])
+covariates<-rownames(nsv[nsv$nzv==FALSE,])
+trainingset<-trainingset[,covariates]
+```
+
+We removed `r NROW(removedvar)` near zero variables, `r NROW(covariates)` covariates left.
+
+Next we will remove variables with high % of NAs
+```{r}
+NAMES<-colnames(trainingset)
+Y <- vector(mode="numeric", length=NROW(NAMES))
+ for (i in 1:ncol(trainingset)){
+      Y[i]<-  sum(is.na(trainingset[,i]))
+  }
+VarNACount<-cbind(NAMES,Y)
+covariates<-VarNACount[Y=="0",1]
+trainingset<-trainingset[,covariates]
+```
+`r NROW(VarNACount[Y!="0",])` variables have 15368 NA values, these variables where removed from the covariates list as they would not make reliable predictors.
+
+###Classification Tree
+Fitting a clustering model, checking accuracy and variable importance to help reduce the number of variables considered.
+```{r}
+library(rpart)
+modelFitCl<-rpart(classe~.,data=trainingset,method="class")
+modelPredCl<-predict(modelFitCl,testset,type="class")
+confusionMatrix(modelPredCl,testset$classe)
+varImp(modelFitCl)
+```
+The simple classification tree model has an accuracy of 73%, using 33 variables.  We shall cross validate the model by applying the classification tree model to the test set.
+
+```{r}
+modelPredCl<-predict(modelFitCl,testset,type="class")
+confusionMatrix(modelPredCl, testset$classe)
+```
+
+The accuracy was found to be equal to that achieved for the trainingset.
+
+###Random Forest
+We shall attempt to improve the forecast by using random forest technique.  
+
+```{r}
+library(randomForest)
+set.seed(32564)
+modelFitRF<-randomForest(classe ~ ., data = trainingset, ntree = 800)
+modelPredRF<-predict(modelFitRF,trainingset,type="class")
+confusionMatrix(modelPredRF, trainingset$classe)
+```
+As we can see the fit to the training set is very high, accuracy 100%.  Random forests though have a tendency of overfitting we shall cross validate the model on the testset.
+
+```{r}
+modelPredRF<-predict(modelFitRF,testset,type="class")
+confusionMatrix(modelPredRF, testset$classe)
+```
+The accuracy on the test set is found to be 99%, which is very high we shall therefore stick to the random forest built model.
+
+##Prediction on Assignment Test Data
+We shall now apply the random forest generated model onto the test set to extract the predictions for the assignment
+```{r}
+testing<-read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+predictionTestRF<-predict(modelFitRF,testing)
+predictionTestRF
+```
